@@ -107,16 +107,40 @@
         const fizOptions = ["Fizetni", "Fizetve"];
         const daysHu = ['vasárnap', 'hétfő', 'kedd', 'szerda', 'csütörtök', 'péntek', 'szombat'];
 
-        // Alaphelyzetben teljesen üres
-        let db = JSON.parse(localStorage.getItem('travel_db')) || {};
+        // Üres adatbázis kezdésnek
+        let db = {};
         
         const today = new Date();
         let viewYear = today.getFullYear();
         let viewMonth = today.getMonth();
         let selectedDate = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
 
+        // ÚJ: Ez a funkció tölti be az adatokat induláskor
+        async function loadInitialData() {
+            const localData = localStorage.getItem('travel_db');
+            
+            try {
+                // Megpróbáljuk letölteni a GitHub-ra feltöltött adatok.json-t
+                const response = await fetch('adatok.json');
+                if (response.ok) {
+                    db = await response.json();
+                    console.log("Adatok betöltve a GitHub-ról.");
+                } else if (localData) {
+                    db = JSON.parse(localData);
+                }
+            } catch (e) {
+                console.log("GitHub fájl nem elérhető, helyi adatok használata.");
+                if (localData) db = JSON.parse(localData);
+            }
+            
+            renderCalendar();
+            renderAgenda();
+        }
+
         function initDropdowns() {
             const ySelect = document.getElementById('yearSelect');
+            if (!ySelect) return;
+            ySelect.innerHTML = ""; // Tisztítás
             for(let y=2024; y<=2030; y++){
                 ySelect.innerHTML += `<option value="${y}">${y}</option>`;
             }
@@ -128,6 +152,42 @@
             viewYear = parseInt(document.getElementById('yearSelect').value);
             viewMonth = parseInt(document.getElementById('monthSelect').value);
             renderCalendar();
+        }
+
+        function toggleTools() {
+            const panel = document.getElementById('toolsPanel');
+            panel.style.display = (panel.style.display === 'flex') ? 'none' : 'flex';
+        }
+
+        function hasActualData(dateKey) {
+            if (!db[dateKey]) return false;
+            return db[dateKey].some(r => r.t.trim() !== '' || r.p.trim() !== '');
+        }
+
+        function ensureTenRows() {
+            if (!db[selectedDate]) db[selectedDate] = [];
+            while (db[selectedDate].length < 10) {
+                db[selectedDate].push({t:"", p:"", i:"", f:"", a:false, s:false, d:""});
+            }
+        }
+
+        function cleanUpRows() {
+            if (!db[selectedDate]) return;
+            const filled = db[selectedDate].filter(r => r.t.trim() !== "" || r.p.trim() !== "" || r.i.trim() !== "" || r.f.trim() !== "" || r.a || r.s || r.d.trim() !== "");
+            while (filled.length < 10) {
+                filled.push({t:"", p:"", i:"", f:"", a:false, s:false, d:""});
+            }
+            db[selectedDate] = filled.slice(0, 10);
+        }
+
+        function moveRow(idx, dir) {
+            if (idx + dir < 0 || idx + dir >= 10) return;
+            const temp = db[selectedDate][idx];
+            db[selectedDate][idx] = db[selectedDate][idx + dir];
+            db[selectedDate][idx + dir] = temp;
+            document.getElementById('statusLabel').innerText = "Változások nincsenek mentve!";
+            document.getElementById('statusLabel').style.color = "red";
+            renderAgenda();
         }
 
         function toggleTools() {
@@ -309,12 +369,14 @@
             const dli = document.createElement('datalist'); dli.id = 'dl-i';
             intOptions.forEach(o => dli.innerHTML += `<option value="${o}">`);
             document.body.appendChild(dli);
+            
             const dlf = document.createElement('datalist'); dlf.id = 'dl-f';
             fizOptions.forEach(o => dlf.innerHTML += `<option value="${o}">`);
             document.body.appendChild(dlf);
+
             initDropdowns();
-            renderCalendar();
-            renderAgenda();
+            // A két sima render helyett az új betöltőt hívjuk:
+            loadInitialData(); 
         });
     </script>
 </body>
