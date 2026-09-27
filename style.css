@@ -143,6 +143,33 @@ form button[type="submit"]:hover { background-color: #27ae60; }
 form button.btn-uj-utazas-mentes { background-color: #f39c12; }
 form button.btn-uj-utazas-mentes:hover { background-color: #e67e22; }
 
+/* Másolás gomb a napi nézetben */
+.btn-copy { background-color: #16a085; color: white; padding: 6px 10px; font-size: 0.85em; border-radius: 4px; border: none; cursor: pointer; font-weight: bold; }
+.btn-copy:hover { background-color: #117a65; }
+
+/* Éjszakák száma mező (szálloda) */
+.mezo-sugo { color: #7f8c8d; font-size: 0.8em; }
+
+/* Kis ablakok: másolás, családi kód */
+.kis-modal-cim { margin-bottom: 12px; padding-right: 30px; }
+.masolas-program { font-weight: bold; color: #2c3e50; margin-bottom: 10px; }
+.nap-lista { display: flex; flex-direction: column; gap: 2px; max-height: 50vh; overflow-y: auto; margin-bottom: 15px; border: 1px solid #eee; border-radius: 4px; padding: 6px; }
+.nap-sor { display: flex; align-items: center; gap: 10px; padding: 8px 6px; border-radius: 4px; cursor: pointer; }
+.nap-sor:hover { background: #f4f7f6; }
+.nap-sor input { width: 20px; height: 20px; flex-shrink: 0; }
+.btn-mentes-zold { padding: 12px; border-radius: 4px; font-size: 16px; background-color: #2ecc71; width: 100%; }
+.btn-mentes-zold:hover { background-color: #27ae60; }
+.btn-megse { padding: 10px; border-radius: 4px; font-size: 15px; background-color: #95a5a6; width: 100%; }
+.btn-megse:hover { background-color: #7f8c8d; }
+.kod-szoveg { color: #57606f; margin-bottom: 12px; line-height: 1.4; }
+
+/* "Frissítve" jelzés alul */
+.frissitve-jelzo { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(20px + env(safe-area-inset-bottom, 0px)); background: #1e7a46; color: #fff; padding: 10px 16px; border-radius: 20px; font-weight: bold; font-size: 0.9em; box-shadow: 0 4px 12px rgba(0,0,0,0.2); z-index: 1100; }
+
+/* Időjárás: kártya fejléc és napi nézet */
+.idojaras { display: block; font-weight: normal; color: #57606f; font-size: 0.95em; margin-top: 2px; }
+.napi-idojaras { margin: -12px 0 18px 0; text-align: center; color: #57606f; font-size: 0.95em; }
+
 .hidden { display: none !important; }
 
 /* ===================== MOBIL NÉZET ===================== */
@@ -175,6 +202,8 @@ form button.btn-uj-utazas-mentes:hover { background-color: #e67e22; }
     body.mobil-naptar .fejlec-hosszu { display: none; }
     body.mobil-naptar .fejlec-rovid { display: inline; }
     body.mobil-naptar .ma-cimke { display: none; }
+    body.mobil-naptar .idojaras { display: block; margin-top: 1px; font-size: 1.1em; line-height: 1.1; }
+    body.mobil-naptar .ido-fok { display: none; }
     body.mobil-naptar .card.ma { outline-width: 2px; outline-offset: -2px; }
     body.mobil-naptar .card-content { gap: 2px; padding-right: 0; }
     body.mobil-naptar .card-content::-webkit-scrollbar { width: 0; }
