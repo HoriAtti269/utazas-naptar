@@ -1,6 +1,6 @@
 // Service worker – az app fájljait eltárolja, így internet nélkül is elindul.
 // Új verzió feltöltésekor a számot növeld (v2, v3…), hogy mindenkinél frissüljön.
-const CACHE_NEV = 'utazastervezo-v1';
+const CACHE_NEV = 'utazastervezo-v2';
 const FAJLOK = [
     './',
     './index.html',
