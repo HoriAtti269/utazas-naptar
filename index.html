@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Utazástervező</title>
+
+    <!-- Telepíthető app (PWA) -->
+    <link rel="manifest" href="manifest.webmanifest">
+    <meta name="theme-color" content="#1e7a46">
+    <link rel="icon" type="image/png" href="icon-192.png">
+    <link rel="apple-touch-icon" href="icon-180.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Utazás">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <header>
+        <div class="header-title">
+            <h1>Utazástervező</h1>
+            <select id="sheetSelector" title="Válassz utazást (munkalapot)">
+                <option value="">Betöltés...</option>
+            </select>
+            <button id="newTripBtn" class="btn-uj-utazas" title="Vadonatúj utazás (munkalap) létrehozása">➕ Új utazás</button>
+        </div>
+        <div class="controls">
+            <label for="startDate">Utazás kezdete:</label>
+            <input type="date" id="startDate">
+            <button id="generateBtn">Tervező generálása</button>
+            <button id="mainAddBtn" class="add-btn">+ Új program</button>
+        </div>
+    </header>
+
+    <!-- Állapotsáv: offline mód, hibák -->
+    <div id="statusBar" class="status hidden"></div>
+
+    <main id="grid-container" class="grid-layout">
+        <p class="welcome-msg">Adatok betöltése...</p>
+    </main>
+
+    <section id="detail-container" class="hidden">
+        <div class="detail-header">
+            <button id="backBtn">⬅ Vissza a teljes nézethez</button>
+            <h2 id="detail-title">Napi Részletek</h2>
+            <button id="openModalBtn" class="add-btn">+ Új program ehhez a naphoz</button>
+        </div>
+
+        <div class="table-responsive">
+            <table id="detailTable">
+                <thead>
+                    <tr>
+                        <th>Idő / Típus</th>
+                        <th>Program megnevezése és részletei</th>
+                        <th>Intézendő</th>
+                        <th>Fizetés előre</th>
+                        <th>Fizetés helyszínen</th>
+                        <th>Költség</th>
+                        <th>Műveletek</th>
+                    </tr>
+                </thead>
+                <tbody id="detailTableBody"></tbody>
+            </table>
+        </div>
+    </section>
+
+    <div id="taskModal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-btn" id="closeModalBtn">×</span>
+            <h3 id="modalTitle">Program szerkesztése</h3>
+            <form id="taskForm">
+                <input type="hidden" id="eventId">
+
+                <div class="form-scroll">
+                    <div class="form-group full">
+                        <label for="taskDatum">Dátum:</label>
+                        <input type="date" id="taskDatum" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="taskVaros">Város:</label>
+                        <input type="text" id="taskVaros" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="taskTipus">Típus (Kategória):</label>
+                        <input type="text" id="taskTipus" list="tipusOptions" required autocomplete="off">
+                        <datalist id="tipusOptions">
+                            <option value="Program">
+                            <option value="Szálloda">
+                            <option value="Repülés">
+                            <option value="Étterem">
+                        </datalist>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="taskIdopont">Időpont / Idősáv:</label>
+                        <input type="text" id="taskIdopont" placeholder="pl. 15:00 vagy 07:30 - 14:00">
+                    </div>
+
+                    <div class="form-group full">
+                        <label for="taskMegnevezes">Megnevezés:</label>
+                        <input type="text" id="taskMegnevezes" required>
+                    </div>
+
+                    <div class="form-group full">
+                        <label for="taskReszletek">Részletek / Leírás:</label>
+                        <input type="text" id="taskReszletek">
+                    </div>
+
+                    <div class="form-group full">
+                        <label for="taskUtvonal">Útvonal terv (Link vagy szöveg):</label>
+                        <input type="text" id="taskUtvonal">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="taskIntezendo">Intézendő:</label>
+                        <input type="text" id="taskIntezendo">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="taskFizetesElore">Fizetés előre:</label>
+                        <input type="text" id="taskFizetesElore">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="taskFizetesHelyszinen">Fizetés helyszínen:</label>
+                        <input type="text" id="taskFizetesHelyszinen">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="taskKoltseg">Költség:</label>
+                        <input type="text" id="taskKoltseg">
+                    </div>
+                </div>
+                <button type="submit">Mentés a táblázatba</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="newTripModal" class="modal hidden">
+        <div class="modal-content modal-kicsi">
+            <span class="close-btn" id="closeNewTripModalBtn">×</span>
+            <h3 style="margin-bottom: 15px;">Új utazás indítása</h3>
+            <form id="newTripForm" class="uj-utazas-form">
+                <div class="form-group">
+                    <label for="newTripName">Utazás neve (pl. Róma 2026):</label>
+                    <input type="text" id="newTripName" placeholder="Írd be az utazás nevét..." required autocomplete="off">
+                </div>
+                <button type="submit" class="btn-uj-utazas-mentes">Létrehozás és Mentés</button>
+            </form>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
