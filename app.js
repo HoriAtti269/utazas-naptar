@@ -4,7 +4,7 @@
 // =====================================================================
 
 // ===== BEÁLLÍTÁS: az Apps Script telepítés címe (…/exec) =====
-const API_URL = 'https://script.google.com/macros/s/IDE_MASOLD_A_TELEPITES_AZONOSITOJAT/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbywqF3CINu8JN1tgAf_jT77-DmzH0JdASOaq1eoDQxcofBioJNVEhuMBgKsp-HWrp9V/exec';
 const ALAP_IDOZONA = 'Europe/Budapest';
 
 // Service worker regisztrálása (telepíthetőség, offline mód)
