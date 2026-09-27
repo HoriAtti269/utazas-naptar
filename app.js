@@ -55,6 +55,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let tasksData = {};
     let varosIdozonak = {};
+    let varosOrszagok = {};        // város → országkód (időjáráshoz)
+    let utolsoBetoltes = 0;        // mikor jött utoljára friss adat (automatikus frissítéshez)
     let currentSelectedDate = null;
     let currentDisplayDate = '';
     let racsNapjai = [];           // a rács napjai sorrendben: { datum, felirat }
@@ -204,21 +206,99 @@ document.addEventListener('DOMContentLoaded', () => {
     //  KOMMUNIKÁCIÓ AZ APPS SCRIPTTEL + OFFLINE MÁSOLAT
     // =================================================================
 
-    // text/plain típussal küldjük, így nincs CORS előkérés
+    // text/plain típussal küldjük, így nincs CORS előkérés.
+    // Hibás vagy hiányzó családi kódnál bekéri a kódot, és megismétli a kérést.
     function api(action, adat = {}) {
+        return apiHivas(action, adat).catch(err => {
+            if (!err.kodHiba) throw err;
+            return kodBekeres().then(() => api(action, adat));
+        });
+    }
+
+    function apiHivas(action, adat) {
         return fetch(API_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify(Object.assign({ action }, adat))
+            body: JSON.stringify(Object.assign({ action, kod: kodOlvasas() }, adat))
         })
             .then(r => {
                 if (!r.ok) throw new Error('Szerverhiba (' + r.status + ')');
                 return r.json();
             })
             .then(v => {
-                if (!v || v.success === false) throw new Error((v && v.error) || 'Ismeretlen hiba');
+                if (!v || v.success === false) {
+                    const hiba = new Error((v && v.error) || 'Ismeretlen hiba');
+                    hiba.kodHiba = !!(v && v.kodHiba);
+                    throw hiba;
+                }
                 return v;
             });
+    }
+
+    // =================================================================
+    //  CSALÁDI KÓD (eszközönként egyszer kell beírni)
+    // =================================================================
+
+    function kodOlvasas() {
+        try { return localStorage.getItem('utazas_kod') || ''; } catch (e) { return ''; }
+    }
+
+    const kodModal = document.createElement('div');
+    kodModal.className = 'modal hidden';
+    kodModal.id = 'kodModal';
+    kodModal.innerHTML =
+        '<div class="modal-content modal-kicsi">' +
+            '<h3 class="kis-modal-cim">🔒 Családi kód</h3>' +
+            '<p class="kod-szoveg" id="kodSzoveg"></p>' +
+            '<form id="kodForm" class="uj-utazas-form">' +
+                '<div class="form-group">' +
+                    '<label for="kodInput">Kód:</label>' +
+                    '<input type="text" id="kodInput" autocomplete="off" autocapitalize="off" spellcheck="false" required>' +
+                '</div>' +
+                '<button type="submit" class="btn-mentes-zold">Belépés</button>' +
+                '<button type="button" id="kodMegseBtn" class="btn-megse">Mégse</button>' +
+            '</form>' +
+        '</div>';
+    document.body.appendChild(kodModal);
+
+    let kodIgeret = null;   // ha több kérés egyszerre kapja a hibát, csak egy ablak nyílik
+
+    function kodBekeres() {
+        if (kodIgeret) return kodIgeret;
+        const volt = kodOlvasas();
+        document.getElementById('kodSzoveg').textContent = volt
+            ? 'A kód nem megfelelő (lehet, hogy megváltozott). Kérlek, add meg újra.'
+            : 'Az utazástervező védett. Add meg a családi kódot, ezen az eszközön csak egyszer kell.';
+        const input = document.getElementById('kodInput');
+        input.value = '';
+        kodModal.classList.remove('hidden');
+        setTimeout(() => input.focus(), 50);
+
+        kodIgeret = new Promise((resolve, reject) => {
+            const form = document.getElementById('kodForm');
+            const megse = document.getElementById('kodMegseBtn');
+            const lezar = () => {
+                form.removeEventListener('submit', bekuld);
+                megse.removeEventListener('click', megszakit);
+                kodModal.classList.add('hidden');
+                kodIgeret = null;
+            };
+            const bekuld = (e) => {
+                e.preventDefault();
+                try { localStorage.setItem('utazas_kod', input.value.trim()); } catch (err) { }
+                lezar();
+                resolve();
+            };
+            const megszakit = () => {
+                lezar();
+                const hiba = new Error('Családi kód nélkül nem érhető el az utazástervező.');
+                hiba.kodMegszakitva = true;
+                reject(hiba);
+            };
+            form.addEventListener('submit', bekuld);
+            megse.addEventListener('click', megszakit);
+        });
+        return kodIgeret;
     }
 
     function cacheMentes(kulcs, ertek) {
@@ -232,12 +312,14 @@ document.addEventListener('DOMContentLoaded', () => {
     function adatokBeallitasa(adatok) {
         tasksData = (adatok && adatok.tasks) || {};
         varosIdozonak = (adatok && adatok.idozonak) || {};
+        varosOrszagok = (adatok && adatok.orszagok) || {};
     }
 
     // Író művelet után a szerver a friss adatot is visszaküldi
     function frissitesValaszbol(valasz) {
         cacheMentes('adatok_' + sheetSelector.value, valasz.adatok);
         adatokBeallitasa(valasz.adatok);
+        utolsoBetoltes = Date.now();
         if (!detailContainer.classList.contains('hidden')) renderDetailTable();
         if (startDateInput.value) generateBtn.click();
     }
@@ -252,7 +334,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 cacheMentes('lapok', v.lapok);
                 lapokMegjelenitese(v.lapok, selectSheet);
             })
-            .catch(() => {
+            .catch((err) => {
+                if (err.kodMegszakitva) {
+                    gridContainer.innerHTML = '<p class="welcome-msg">🔒 A megnyitáshoz családi kód kell. Frissítsd az oldalt, és add meg a kódot.</p>';
+                    return;
+                }
                 const c = cacheOlvasas('lapok');
                 if (c && c.ertek) {
                     lapokMegjelenitese(c.ertek, selectSheet);
@@ -292,10 +378,15 @@ document.addEventListener('DOMContentLoaded', () => {
             .then(v => {
                 cacheMentes('adatok_' + sheetName, v.adatok);
                 adatokBeallitasa(v.adatok);
+                utolsoBetoltes = Date.now();
                 allapot('');
                 betoltveUzenet();
             })
             .catch(err => {
+                if (err.kodMegszakitva) {
+                    gridContainer.innerHTML = '<p class="welcome-msg">🔒 A megnyitáshoz családi kód kell. Frissítsd az oldalt, és add meg a kódot.</p>';
+                    return;
+                }
                 const c = cacheOlvasas('adatok_' + sheetName);
                 if (c && c.ertek) {
                     adatokBeallitasa(c.ertek);
@@ -458,6 +549,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         racsMeretezese();
+        idojarasFrissitese();
     });
 
     // =================================================================
@@ -538,6 +630,7 @@ document.addEventListener('DOMContentLoaded', () => {
         detailTitle.textContent = displayDate;
         lapozoFrissitese();
         renderDetailTable();
+        napiIdojarasKiirasa();
         window.scrollTo(0, 0);
     }
 
@@ -581,7 +674,7 @@ document.addEventListener('DOMContentLoaded', () => {
         erintesY = e.touches[0].clientY;
     }, { passive: true });
     detailContainer.addEventListener('touchend', (e) => {
-        if (erintesX === null || !modal.classList.contains('hidden')) return;
+        if (erintesX === null || nyitottAblak()) return;
         const dx = e.changedTouches[0].clientX - erintesX;
         const dy = e.changedTouches[0].clientY - erintesY;
         erintesX = null;
@@ -590,14 +683,203 @@ document.addEventListener('DOMContentLoaded', () => {
         if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 2) lapozas(dx < 0 ? 1 : -1);
     }, { passive: true });
 
-    // ← → billentyűk laptopon (nem, ha épp mezőbe írsz vagy nyitva az űrlap)
+    // ← → billentyűk laptopon (nem, ha épp mezőbe írsz vagy nyitva egy ablak)
     document.addEventListener('keydown', (e) => {
         if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-        if (!modal.classList.contains('hidden') || !newTripModal.classList.contains('hidden')) return;
+        if (nyitottAblak()) return;
         const tag = (document.activeElement && document.activeElement.tagName) || '';
         if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag)) return;
         lapozas(e.key === 'ArrowRight' ? 1 : -1);
     });
+
+    function nyitottAblak() {
+        return !!document.querySelector('.modal:not(.hidden)');
+    }
+
+    // =================================================================
+    //  AUTOMATIKUS FRISSÍTÉS
+    //  Amikor az appot előveszed (vagy visszaváltasz a fülre), csendben
+    //  lehúzza a friss adatot. Legfeljebb percenként egyszer.
+    // =================================================================
+
+    const FRISSITES_MIN_KOZ = 60 * 1000;
+
+    const frissitveJelzo = document.createElement('div');
+    frissitveJelzo.className = 'frissitve-jelzo hidden';
+    document.body.appendChild(frissitveJelzo);
+    let jelzoIdozito = null;
+
+    function jelzes(szoveg) {
+        frissitveJelzo.textContent = szoveg;
+        frissitveJelzo.classList.remove('hidden');
+        clearTimeout(jelzoIdozito);
+        jelzoIdozito = setTimeout(() => frissitveJelzo.classList.add('hidden'), 2500);
+    }
+
+    function csendesFrissites() {
+        const lap = sheetSelector.value;
+        if (!lap || !utolsoBetoltes || Date.now() - utolsoBetoltes < FRISSITES_MIN_KOZ || nyitottAblak()) return;
+        utolsoBetoltes = Date.now();
+
+        api('adatok', { lap })
+            .then(v => {
+                if (sheetSelector.value !== lap) return;
+                const valtozott = JSON.stringify(v.adatok) !== JSON.stringify({ tasks: tasksData, idozonak: varosIdozonak, orszagok: varosOrszagok });
+                cacheMentes('adatok_' + lap, v.adatok);
+                allapot('');
+                if (!valtozott) return;
+                adatokBeallitasa(v.adatok);
+                if (startDateInput.value && racsNapjai.length) generateBtn.click();
+                if (!detailContainer.classList.contains('hidden')) {
+                    lapozoFrissitese();
+                    renderDetailTable();
+                }
+                jelzes('🔄 Frissítve – közben módosult a terv');
+            })
+            .catch(() => { /* offline: marad, ami van */ });
+    }
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') csendesFrissites();
+    });
+    window.addEventListener('pageshow', (e) => { if (e.persisted) csendesFrissites(); });
+
+    // =================================================================
+    //  IDŐJÁRÁS (Open-Meteo, ingyenes, kulcs nélkül)
+    //  A nap első városának előrejelzése, a következő ~16 napra.
+    // =================================================================
+
+    const IDOJARAS_NAPOK = 16;
+    const ELOREJELZES_ERVENYES = 3 * 60 * 60 * 1000;      // 3 óra
+    const HELY_ERVENYES = 30 * 24 * 60 * 60 * 1000;       // 30 nap
+
+    function idojarasKod(kod) {
+        if (kod === 0) return ['☀️', 'Derült'];
+        if (kod === 1) return ['🌤️', 'Többnyire derült'];
+        if (kod === 2) return ['⛅', 'Részben felhős'];
+        if (kod === 3) return ['☁️', 'Borult'];
+        if (kod === 45 || kod === 48) return ['🌫️', 'Köd'];
+        if (kod >= 51 && kod <= 57) return ['🌦️', 'Szitálás'];
+        if (kod >= 61 && kod <= 67) return ['🌧️', 'Eső'];
+        if (kod >= 71 && kod <= 77) return ['🌨️', 'Havazás'];
+        if (kod >= 80 && kod <= 82) return ['🌦️', 'Zápor'];
+        if (kod === 85 || kod === 86) return ['🌨️', 'Hózápor'];
+        if (kod >= 95) return ['⛈️', 'Zivatar'];
+        return ['🌡️', ''];
+    }
+
+    const elorejelzesek = {};   // 'MIAMI|US' → { datum: { kod, max, min } }
+
+    function napElsoVarosa(datum) {
+        const e = napiSorrend(tasksData[datum] || []).find(x => (x.varos || '').trim());
+        return e ? e.varos.trim() : '';
+    }
+
+    function idojarasKulcs(varos) {
+        const v = varos.toUpperCase();
+        return v + '|' + (varosOrszagok[v] || '');
+    }
+
+    async function helyKereses(varos) {
+        const orszag = varosOrszagok[varos.toUpperCase()] || '';
+        const kulcs = 'hely_' + varos.toUpperCase() + '|' + orszag;
+        const c = cacheOlvasas(kulcs);
+        if (c && c.ertek && Date.now() - c.ido < HELY_ERVENYES) return c.ertek;
+
+        let url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(varos)}&count=1&language=hu&format=json`;
+        if (orszag) url += `&countryCode=${orszag}`;
+        const v = await fetch(url).then(r => r.json());
+        const t = v && v.results && v.results[0];
+        if (!t) return null;
+        const hely = { lat: t.latitude, lon: t.longitude };
+        cacheMentes(kulcs, hely);
+        return hely;
+    }
+
+    async function varosElorejelzese(varos) {
+        const kulcs = idojarasKulcs(varos);
+        if (elorejelzesek[kulcs]) return elorejelzesek[kulcs];
+        const c = cacheOlvasas('idojaras_' + kulcs);
+        if (c && c.ertek && Date.now() - c.ido < ELOREJELZES_ERVENYES) {
+            elorejelzesek[kulcs] = c.ertek;
+            return c.ertek;
+        }
+        const hely = await helyKereses(varos);
+        if (!hely) return null;
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${hely.lat}&longitude=${hely.lon}` +
+            `&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=${IDOJARAS_NAPOK}`;
+        const v = await fetch(url).then(r => r.json());
+        if (!v || !v.daily || !v.daily.time) return null;
+        const napok = {};
+        v.daily.time.forEach((d, i) => {
+            napok[d] = {
+                kod: v.daily.weather_code[i],
+                max: Math.round(v.daily.temperature_2m_max[i]),
+                min: Math.round(v.daily.temperature_2m_min[i])
+            };
+        });
+        elorejelzesek[kulcs] = napok;
+        cacheMentes('idojaras_' + kulcs, napok);
+        return napok;
+    }
+
+    function napIdojarasa(datum) {
+        const varos = napElsoVarosa(datum);
+        if (!varos) return null;
+        const napok = elorejelzesek[idojarasKulcs(varos)];
+        return (napok && napok[datum]) ? Object.assign({ varos }, napok[datum]) : null;
+    }
+
+    function idojarasMegjelenitese() {
+        racsNapjai.forEach(nap => {
+            const kartya = gridContainer.querySelector(`.card[data-date="${nap.datum}"] .card-header`);
+            if (!kartya) return;
+            let hely = kartya.querySelector('.idojaras');
+            const i = napIdojarasa(nap.datum);
+            if (!i) { if (hely) hely.remove(); return; }
+            if (!hely) {
+                hely = document.createElement('span');
+                hely.className = 'idojaras';
+                kartya.appendChild(hely);
+            }
+            const [ikon, szoveg] = idojarasKod(i.kod);
+            hely.title = `${i.varos}: ${szoveg}, ${i.max}° / ${i.min}°`;
+            hely.innerHTML = `${ikon}<span class="ido-fok"> ${i.max}°/${i.min}°</span>`;
+        });
+        napiIdojarasKiirasa();
+    }
+
+    function napiIdojarasKiirasa() {
+        if (detailContainer.classList.contains('hidden') || !currentSelectedDate) return;
+        const i = napIdojarasa(currentSelectedDate);
+        if (!i) { napiIdojaras.classList.add('hidden'); return; }
+        const [ikon, szoveg] = idojarasKod(i.kod);
+        napiIdojaras.textContent = `${ikon} ${i.varos}: ${szoveg}, max. ${i.max}°, min. ${i.min}°`;
+        napiIdojaras.classList.remove('hidden');
+    }
+
+    async function idojarasFrissitese() {
+        const ma = formatLocalDate(new Date());
+        const utolso = new Date();
+        utolso.setDate(utolso.getDate() + IDOJARAS_NAPOK - 1);
+        const utolsoStr = formatLocalDate(utolso);
+
+        const varosok = new Set();
+        racsNapjai.forEach(nap => {
+            if (nap.datum < ma || nap.datum > utolsoStr) return;
+            const v = napElsoVarosa(nap.datum);
+            if (v) varosok.add(v);
+        });
+        if (varosok.size === 0) { idojarasMegjelenitese(); return; }
+
+        await Promise.all([...varosok].map(v => varosElorejelzese(v).catch(() => null)));
+        idojarasMegjelenitese();
+    }
+
+    // A napi nézetben a cím alatti időjárás-sor
+    const napiIdojaras = document.createElement('div');
+    napiIdojaras.className = 'napi-idojaras hidden';
+    document.querySelector('.detail-header').after(napiIdojaras);
 
     // Térkép: link, szöveg, vagy automatikus Google + Apple kereső gomb
     function terkepHtml(event) {
@@ -665,6 +947,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     `<div class="btn-actions">` +
                         `<button class="btn-edit" data-id="${esc(event.id)}">Módosítás</button>` +
                         `<button class="btn-delete" data-id="${esc(event.id)}">Törlés</button>` +
+                        `<button class="btn-copy" data-id="${esc(event.id)}" title="Másolás más napra">Másolás</button>` +
                         `<span class="elvalaszto"></span>` +
                         `<button class="btn-move btn-move-up ${felOk ? '' : 'rejtett'}" data-index="${index}" title="Mozgatás fel">⬆️</button>` +
                         `<button class="btn-move btn-move-down ${leOk ? '' : 'rejtett'}" data-index="${index}" title="Mozgatás le">⬇️</button>` +
@@ -679,6 +962,9 @@ document.addEventListener('DOMContentLoaded', () => {
         detailTableBody.querySelectorAll('.btn-delete').forEach(btn => {
             btn.addEventListener('click', (e) => deleteEvent(e.currentTarget.dataset.id));
         });
+        detailTableBody.querySelectorAll('.btn-copy').forEach(btn => {
+            btn.addEventListener('click', (e) => openCopyModal(e.currentTarget.dataset.id));
+        });
         detailTableBody.querySelectorAll('.btn-move-up:not(.rejtett)').forEach(btn => {
             btn.addEventListener('click', (e) => moveEvent(parseInt(e.currentTarget.dataset.index, 10), -1));
         });
@@ -690,6 +976,61 @@ document.addEventListener('DOMContentLoaded', () => {
     function keresesIdAlapjan(id) {
         return (tasksData[currentSelectedDate] || []).find(e => e.id === id) || null;
     }
+
+    // =================================================================
+    //  MÁSOLÁS MÁS NAPRA (az utazás napjai közül választva)
+    // =================================================================
+
+    const masolasModal = document.createElement('div');
+    masolasModal.className = 'modal hidden';
+    masolasModal.id = 'masolasModal';
+    masolasModal.innerHTML =
+        '<div class="modal-content modal-kicsi">' +
+            '<span class="close-btn" id="closeMasolasBtn">×</span>' +
+            '<h3 class="kis-modal-cim">Másolás más napra</h3>' +
+            '<p class="masolas-program" id="masolasProgram"></p>' +
+            '<div class="nap-lista" id="masolasNapok"></div>' +
+            '<button type="button" id="masolasMentesBtn" class="btn-mentes-zold">Másolás</button>' +
+        '</div>';
+    document.body.appendChild(masolasModal);
+    const masolasNapok = document.getElementById('masolasNapok');
+    const masolasMentesBtn = document.getElementById('masolasMentesBtn');
+    let masolandoId = null;
+
+    function openCopyModal(id) {
+        const event = keresesIdAlapjan(id);
+        if (!event) return alert('A program nem található – frissítsd az oldalt!');
+        masolandoId = id;
+        document.getElementById('masolasProgram').textContent = event.megnevezés + (event.idopont ? ` (${event.idopont})` : '');
+        masolasNapok.innerHTML = '';
+        racsNapjai.forEach((nap, i) => {
+            if (nap.datum === currentSelectedDate) return;
+            const sor = document.createElement('label');
+            sor.className = 'nap-sor';
+            sor.innerHTML = `<input type="checkbox" id="masolNap${i}" value="${esc(nap.datum)}"> <span>${esc(nap.felirat)}</span>`;
+            masolasNapok.appendChild(sor);
+        });
+        masolasModal.classList.remove('hidden');
+    }
+
+    document.getElementById('closeMasolasBtn').addEventListener('click', () => masolasModal.classList.add('hidden'));
+
+    masolasMentesBtn.addEventListener('click', () => {
+        const datumok = [...masolasNapok.querySelectorAll('input:checked')].map(c => c.value);
+        if (datumok.length === 0) return alert('Jelölj be legalább egy napot!');
+        masolasMentesBtn.disabled = true;
+        masolasMentesBtn.textContent = 'Másolás folyamatban... ⏳';
+        api('masolas', { lap: sheetSelector.value, id: masolandoId, datumok })
+            .then(valasz => {
+                frissitesValaszbol(valasz);
+                masolasModal.classList.add('hidden');
+            })
+            .catch(err => alert('Hiba a másoláskor: ' + err.message))
+            .finally(() => {
+                masolasMentesBtn.disabled = false;
+                masolasMentesBtn.textContent = 'Másolás';
+            });
+    });
 
     function moveEvent(index, irany) {
         const lista = napiSorrend(tasksData[currentSelectedDate] || []);
@@ -784,6 +1125,7 @@ document.addEventListener('DOMContentLoaded', () => {
         modalTitle.innerText = "Új program / Új nap felvétele";
         taskDatumInput.value = "";
         taskDatumInput.readOnly = false;
+        ejszakakMezoFrissitese();
         modal.classList.remove('hidden');
     });
 
@@ -798,6 +1140,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (events.length > 0 && events[0].varos) {
             inputs.varos.value = events[0].varos;
         }
+        ejszakakMezoFrissitese();
         modal.classList.remove('hidden');
     });
 
@@ -822,10 +1165,34 @@ document.addEventListener('DOMContentLoaded', () => {
         inputs.fizetesHelyszinen.value = event.fizetesHelyszinen || "";
         inputs.koltseg.value = event.koltseg || "";
 
+        ejszakakMezoFrissitese();
         modal.classList.remove('hidden');
     }
 
     closeModalBtn.addEventListener('click', () => modal.classList.add('hidden'));
+
+    // ---- Éjszakák száma mező (csak Szálloda típusnál látszik) ----
+    const ejszakakCsoport = document.createElement('div');
+    ejszakakCsoport.className = 'form-group ejszakak-csoport hidden';
+    ejszakakCsoport.innerHTML =
+        '<label for="taskEjszakak">Éjszakák száma:</label>' +
+        '<input type="number" id="taskEjszakak" min="1" max="60" value="1" inputmode="numeric">' +
+        '<small class="mezo-sugo">2 vagy több: a következő napokra is létrehozza ugyanezt a szállodát.</small>';
+    inputs.idopont.closest('.form-group').after(ejszakakCsoport);
+    const ejszakakInput = document.getElementById('taskEjszakak');
+
+    function ejszakakMezoLathato() {
+        return !ejszakakCsoport.classList.contains('hidden');
+    }
+
+    // Csak új szállodánál; meglévő bejegyzéshez a "Másolás" gomb való (így nem lesz duplikátum)
+    function ejszakakMezoFrissitese() {
+        const szalloda = inputs.tipus.value.trim().toLowerCase() === 'szálloda';
+        ejszakakCsoport.classList.toggle('hidden', !szalloda || !!eventIdInput.value);
+    }
+
+    inputs.tipus.addEventListener('input', ejszakakMezoFrissitese);
+    inputs.tipus.addEventListener('change', ejszakakMezoFrissitese);
 
     taskForm.addEventListener('submit', (e) => {
         e.preventDefault();
@@ -848,6 +1215,16 @@ document.addEventListener('DOMContentLoaded', () => {
             fizetesHelyszinen: inputs.fizetesHelyszinen.value,
             koltseg: inputs.koltseg.value
         };
+
+        // Szálloda több éjszakára: a további napok dátumai (a kezdőnap után)
+        const ejszakak = ejszakakMezoLathato() ? Math.min(60, Math.max(1, parseInt(ejszakakInput.value, 10) || 1)) : 1;
+        if (ejszakak > 1 && targetDate) {
+            const kezdo = datumbol(targetDate);
+            eventData.extraDatumok = [];
+            for (let i = 1; i < ejszakak; i++) {
+                eventData.extraDatumok.push(formatLocalDate(new Date(kezdo.getFullYear(), kezdo.getMonth(), kezdo.getDate() + i)));
+            }
+        }
 
         api('mentes', { lap: sheetSelector.value, event: eventData })
             .then(valasz => {
