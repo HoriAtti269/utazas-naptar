@@ -978,6 +978,111 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // =================================================================
+    //  ÉRTESÍTÉSEK: reggeli e-mail címzettjei az aktuális utazáshoz
+    //  (külön levél mindenkinek, opcionális Mettől–Meddig időszakkal)
+    // =================================================================
+
+    const ertesitesBtn = document.createElement('button');
+    ertesitesBtn.type = 'button';
+    ertesitesBtn.id = 'ertesitesBtn';
+    ertesitesBtn.className = 'btn-ertesites';
+    ertesitesBtn.textContent = '✉️ Értesítések';
+    ertesitesBtn.title = 'Ki kapjon reggeli összefoglalót erről az utazásról';
+    newTripBtn.after(ertesitesBtn);
+
+    const ertesitesModal = document.createElement('div');
+    ertesitesModal.className = 'modal hidden';
+    ertesitesModal.id = 'ertesitesModal';
+    ertesitesModal.innerHTML =
+        '<div class="modal-content modal-kozepes">' +
+            '<span class="close-btn" id="closeErtesitesBtn">×</span>' +
+            '<h3 class="kis-modal-cim" id="ertesitesCim">Értesítések</h3>' +
+            '<p class="ertesites-sugo">Reggeli összefoglaló e-mail az aznapi programról, a nap első városának helyi ideje szerint. ' +
+            'Mindenki külön levelet kap. Üres dátum: az utazás elejétől, illetve a végéig.</p>' +
+            '<p class="ertesites-figyelem hidden" id="ertesitesKiVan">⚠️ A reggeli e-mail jelenleg ki van kapcsolva (Beállítások lap, B1 pipa), így most senki nem kap levelet.</p>' +
+            '<div class="cimzett-fejlec"><span>E-mail</span><span>Mettől</span><span>Meddig</span><span></span></div>' +
+            '<div id="cimzettLista" class="cimzett-lista"></div>' +
+            '<button type="button" id="ujCimzettBtn" class="btn-uj-cimzett">+ Címzett</button>' +
+            '<button type="button" id="ertesitesMentesBtn" class="btn-mentes-zold">Mentés</button>' +
+        '</div>';
+    document.body.appendChild(ertesitesModal);
+    const cimzettLista = document.getElementById('cimzettLista');
+    const ertesitesMentesBtn = document.getElementById('ertesitesMentesBtn');
+    let cimzettSorSzamlalo = 0;
+
+    function cimzettSor(c = {}) {
+        const n = ++cimzettSorSzamlalo;
+        const sor = document.createElement('div');
+        sor.className = 'cimzett-sor';
+        sor.innerHTML =
+            `<input type="email" id="cimzettEmail${n}" class="cimzett-email" placeholder="nev@pelda.hu" autocomplete="off" autocapitalize="off" value="${esc(c.email || '')}" aria-label="E-mail">` +
+            `<label class="cimzett-datum"><span>Mettől</span><input type="date" id="cimzettMettol${n}" class="cimzett-mettol" value="${esc(c.mettol || '')}"></label>` +
+            `<label class="cimzett-datum"><span>Meddig</span><input type="date" id="cimzettMeddig${n}" class="cimzett-meddig" value="${esc(c.meddig || '')}"></label>` +
+            `<button type="button" class="cimzett-torles" title="Címzett törlése" aria-label="Címzett törlése">✕</button>`;
+        sor.querySelector('.cimzett-torles').addEventListener('click', () => {
+            sor.remove();
+            if (!cimzettLista.children.length) cimzettLista.appendChild(cimzettSor());
+        });
+        return sor;
+    }
+
+    ertesitesBtn.addEventListener('click', () => {
+        const lap = sheetSelector.value;
+        if (!lap) return;
+        document.getElementById('ertesitesCim').textContent = `✉️ Értesítések – ${lap}`;
+        document.getElementById('ertesitesKiVan').classList.add('hidden');
+        cimzettLista.innerHTML = '<p class="ertesites-sugo">Betöltés... ⏳</p>';
+        ertesitesMentesBtn.disabled = true;
+        ertesitesModal.classList.remove('hidden');
+
+        api('ertesitesek', { lap })
+            .then(v => {
+                cimzettLista.innerHTML = '';
+                (v.cimzettek.length ? v.cimzettek : [{}]).forEach(c => cimzettLista.appendChild(cimzettSor(c)));
+                document.getElementById('ertesitesKiVan').classList.toggle('hidden', !!v.bekapcsolva);
+                ertesitesMentesBtn.disabled = false;
+            })
+            .catch(err => {
+                cimzettLista.innerHTML = `<p class="ertesites-sugo">Nem sikerült betölteni: ${esc(err.message)}</p>`;
+            });
+    });
+
+    document.getElementById('ujCimzettBtn').addEventListener('click', () => {
+        const sor = cimzettSor();
+        cimzettLista.appendChild(sor);
+        sor.querySelector('.cimzett-email').focus();
+    });
+
+    document.getElementById('closeErtesitesBtn').addEventListener('click', () => ertesitesModal.classList.add('hidden'));
+
+    ertesitesMentesBtn.addEventListener('click', () => {
+        const cimzettek = [];
+        const emailMinta = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/;
+        for (const sor of cimzettLista.querySelectorAll('.cimzett-sor')) {
+            const email = sor.querySelector('.cimzett-email').value.trim();
+            const mettol = sor.querySelector('.cimzett-mettol').value;
+            const meddig = sor.querySelector('.cimzett-meddig').value;
+            if (!email) continue;
+            if (!emailMinta.test(email)) return alert(`Hibás e-mail-cím: ${email}`);
+            if (mettol && meddig && mettol > meddig) return alert(`A "Mettől" későbbi, mint a "Meddig": ${email}`);
+            cimzettek.push({ email, mettol, meddig });
+        }
+
+        ertesitesMentesBtn.disabled = true;
+        ertesitesMentesBtn.textContent = 'Mentés... ⏳';
+        api('ertesitesekMentes', { lap: sheetSelector.value, cimzettek })
+            .then(() => {
+                ertesitesModal.classList.add('hidden');
+                jelzes(cimzettek.length ? `✉️ Mentve – ${cimzettek.length} címzett` : '✉️ Mentve – nincs címzett');
+            })
+            .catch(err => alert('Hiba a mentéskor: ' + err.message))
+            .finally(() => {
+                ertesitesMentesBtn.disabled = false;
+                ertesitesMentesBtn.textContent = 'Mentés';
+            });
+    });
+
+    // =================================================================
     //  MÁSOLÁS MÁS NAPRA (az utazás napjai közül választva)
     // =================================================================
 
