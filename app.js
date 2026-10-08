@@ -61,6 +61,16 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentDisplayDate = '';
     let racsNapjai = [];           // a rács napjai sorrendben: { datum, felirat }
 
+    // Közvetlen link (widgetekről): ?lap=NOVEMBER%20MIAMI&nezet=racs  vagy  ?lap=…&nap=2026-11-04
+    let kozvetlenLink = null;
+    try {
+        const p = new URLSearchParams(location.search);
+        if (p.get('lap')) {
+            const nap = p.get('nap');
+            kozvetlenLink = { lap: p.get('lap'), nap: /^\d{4}-\d{2}-\d{2}$/.test(nap || '') ? nap : null };
+        }
+    } catch (e) { }
+
     const ROVID_NAPOK = ['V', 'H', 'K', 'Sze', 'Cs', 'P', 'Szo'];
 
     // ---- Napi lapozó: ◀ cím ▶ (a meglévő cím köré építjük) ----
@@ -357,7 +367,10 @@ document.addEventListener('DOMContentLoaded', () => {
             sheetSelector.appendChild(option);
         });
         if (names.length > 0) {
-            const valasztott = (selectSheet && names.includes(selectSheet)) ? selectSheet : names[0];
+            // Elsőbbség: most létrehozott utazás, majd a widgetről érkező link, végül az első munkalap
+            const linkLap = (kozvetlenLink && names.includes(kozvetlenLink.lap)) ? kozvetlenLink.lap : null;
+            if (kozvetlenLink && !linkLap) kozvetlenLink = null;
+            const valasztott = (selectSheet && names.includes(selectSheet)) ? selectSheet : (linkLap || names[0]);
             sheetSelector.value = valasztott;
             loadTasksForSheet(valasztott);
         }
@@ -400,8 +413,22 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function betoltveUzenet() {
+        // Widgetről érkező link: a kezdődátum az utazás első napja, a rács magától kirajzolódik
+        const link = (kozvetlenLink && kozvetlenLink.lap === sheetSelector.value) ? kozvetlenLink : null;
+        if (link) {
+            const napok = Object.keys(tasksData).filter(k => /^\d{4}-\d{2}-\d{2}$/.test(k)).sort();
+            if (napok.length) startDateInput.value = napok[0];
+        }
+
         gridContainer.innerHTML = '<p class="welcome-msg">Munkalap sikeresen betöltve! Kérlek, add meg az indulás napját, majd kattints a "Tervező generálása" gombra!</p>';
         if (startDateInput.value) generateBtn.click();
+
+        if (link) {
+            kozvetlenLink = null;
+            try { history.replaceState(null, '', location.pathname); } catch (e) { }
+            const nap = link.nap && racsNapjai.find(n => n.datum === link.nap);
+            if (nap) openDetailView(nap.datum, nap.felirat);
+        }
     }
 
     // =================================================================
