@@ -167,8 +167,14 @@ form button.btn-uj-utazas-mentes:hover { background-color: #e67e22; }
 .frissitve-jelzo { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(20px + env(safe-area-inset-bottom, 0px)); background: #1e7a46; color: #fff; padding: 10px 16px; border-radius: 20px; font-weight: bold; font-size: 0.9em; box-shadow: 0 4px 12px rgba(0,0,0,0.2); z-index: 1100; }
 
 /* Időjárás: kártya fejléc és napi nézet */
-.idojaras { display: block; font-weight: normal; color: #57606f; font-size: 0.95em; margin-top: 2px; }
-.napi-idojaras { margin: -12px 0 18px 0; text-align: center; color: #57606f; font-size: 0.95em; }
+/* Rács: időjárás a városcsíkban (név balra, időjárás jobbra; ha nincs adat, a név középen marad) */
+.badge-varos.ido { display: flex; justify-content: center; align-items: center; gap: 4px; }
+.badge-varos.ido.van-ido { justify-content: space-between; }
+.badge-varos.ido .v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.badge-varos.ido .i { flex-shrink: 0; font-weight: normal; opacity: 0.95; }
+
+/* Napi nézet: időjárás a városnév mellett (nem nagybetűs, halványabb) */
+.varos-ido { text-transform: none; font-weight: normal; color: #57606f; margin-left: 6px; white-space: nowrap; }
 
 /* Értesítések: gomb és ablak */
 .btn-ertesites { padding: 8px 12px; background-color: #1e7a46; color: white; border: none; border-radius: 4px; font-size: 14px; }
@@ -212,6 +218,8 @@ form button.btn-uj-utazas-mentes:hover { background-color: #e67e22; }
     body.mobil-lista .card-content { overflow: visible; }
     body.mobil-lista .task-badge { white-space: normal; font-size: 0.9em; }
     body.mobil-lista .badge-varos { text-align: left; }
+    body.mobil-lista .badge-varos.ido { justify-content: flex-start; }
+    body.mobil-lista .badge-varos.ido.van-ido { justify-content: space-between; }
 
     /* NAPTÁR NÉZET: 7 oszlop a képernyőre illesztve, csípéssel nagyítható */
     body.mobil-naptar .grid-layout { grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
@@ -220,7 +228,8 @@ form button.btn-uj-utazas-mentes:hover { background-color: #e67e22; }
     body.mobil-naptar .fejlec-hosszu { display: none; }
     body.mobil-naptar .fejlec-rovid { display: inline; }
     body.mobil-naptar .ma-cimke { display: none; }
-    body.mobil-naptar .idojaras { display: block; margin-top: 1px; font-size: 1.1em; line-height: 1.1; }
+    /* Telefonos naptárnézet: a csíkban csak az ikon fér el */
+    body.mobil-naptar .badge-varos.ido { gap: 1px; }
     body.mobil-naptar .ido-fok { display: none; }
     body.mobil-naptar .card.ma { outline-width: 2px; outline-offset: -2px; }
     body.mobil-naptar .card-content { gap: 2px; padding-right: 0; }

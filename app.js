@@ -625,13 +625,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const sortedEvents = napiSorrend(tasksData[dateString] || []);
         let lastRenderedCity = "";
+        const idojarasVarosok = new Set();   // egy városnál csak az első csík kap időjárást
 
         sortedEvents.forEach(event => {
             const currentCity = (event.varos || "").trim().toUpperCase();
             if (currentCity !== "" && currentCity !== lastRenderedCity) {
                 const cityBadge = document.createElement('div');
-                cityBadge.className = 'task-badge badge-varos';
-                cityBadge.textContent = currentCity;
+                cityBadge.className = 'task-badge badge-varos ido';
+                const nev = document.createElement('span');
+                nev.className = 'v';
+                nev.textContent = currentCity;
+                cityBadge.appendChild(nev);
+                if (!idojarasVarosok.has(currentCity)) {
+                    idojarasVarosok.add(currentCity);
+                    const ido = document.createElement('span');
+                    ido.className = 'i hidden';
+                    ido.dataset.idoVaros = event.varos.trim();
+                    ido.dataset.idoDatum = dateString;
+                    cityBadge.appendChild(ido);
+                }
                 contentBox.appendChild(cityBadge);
                 lastRenderedCity = currentCity;
             }
@@ -657,7 +669,6 @@ document.addEventListener('DOMContentLoaded', () => {
         detailTitle.textContent = displayDate;
         lapozoFrissitese();
         renderDetailTable();
-        napiIdojarasKiirasa();
         window.scrollTo(0, 0);
     }
 
@@ -797,11 +808,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const elorejelzesek = {};   // 'MIAMI|US' → { datum: { kod, max, min } }
 
-    function napElsoVarosa(datum) {
-        const e = napiSorrend(tasksData[datum] || []).find(x => (x.varos || '').trim());
-        return e ? e.varos.trim() : '';
-    }
-
     function idojarasKulcs(varos) {
         const v = varos.toUpperCase();
         return v + '|' + (varosOrszagok[v] || '');
@@ -850,41 +856,36 @@ document.addEventListener('DOMContentLoaded', () => {
         return napok;
     }
 
-    function napIdojarasa(datum) {
-        const varos = napElsoVarosa(datum);
-        if (!varos) return null;
+    // Egy város előrejelzése egy adott napra (ha már letöltöttük)
+    function varosIdojarasa(varos, datum) {
         const napok = elorejelzesek[idojarasKulcs(varos)];
-        return (napok && napok[datum]) ? Object.assign({ varos }, napok[datum]) : null;
+        return (napok && napok[datum]) ? napok[datum] : null;
     }
 
-    function idojarasMegjelenitese() {
-        racsNapjai.forEach(nap => {
-            const kartya = gridContainer.querySelector(`.card[data-date="${nap.datum}"] .card-header`);
-            if (!kartya) return;
-            let hely = kartya.querySelector('.idojaras');
-            const i = napIdojarasa(nap.datum);
-            if (!i) { if (hely) hely.remove(); return; }
-            if (!hely) {
-                hely = document.createElement('span');
-                hely.className = 'idojaras';
-                kartya.appendChild(hely);
+    // Minden időjárás-helyet kitölt, ami data-ido-varos / data-ido-datum jelölést kapott:
+    // rácsban a városcsík mellett (ikon + max), napi nézetben a városnév mellett (ikon, leírás, max/min)
+    function idojarasCimkekKitoltese(gyoker = document) {
+        gyoker.querySelectorAll('[data-ido-varos]').forEach(el => {
+            const varos = el.dataset.idoVaros;
+            const i = varosIdojarasa(varos, el.dataset.idoDatum);
+            const csik = el.closest('.badge-varos');
+            if (csik) csik.classList.toggle('van-ido', !!i);
+            if (!i) {
+                el.innerHTML = '';
+                el.removeAttribute('title');
+                el.classList.add('hidden');
+                return;
             }
             const [ikon, szoveg] = idojarasKod(i.kod);
-            hely.title = `${i.varos}: ${szoveg}, ${i.max}° / ${i.min}°`;
-            hely.innerHTML = `${ikon}<span class="ido-fok"> ${i.max}°/${i.min}°</span>`;
+            el.title = `${varos}: ${szoveg}, max. ${i.max}°, min. ${i.min}°`;
+            el.innerHTML = el.dataset.idoMod === 'teljes'
+                ? `${ikon} ${esc(szoveg)} · ${i.max}°/${i.min}°`
+                : `${ikon}<span class="ido-fok"> ${i.max}°</span>`;
+            el.classList.remove('hidden');
         });
-        napiIdojarasKiirasa();
     }
 
-    function napiIdojarasKiirasa() {
-        if (detailContainer.classList.contains('hidden') || !currentSelectedDate) return;
-        const i = napIdojarasa(currentSelectedDate);
-        if (!i) { napiIdojaras.classList.add('hidden'); return; }
-        const [ikon, szoveg] = idojarasKod(i.kod);
-        napiIdojaras.textContent = `${ikon} ${i.varos}: ${szoveg}, max. ${i.max}°, min. ${i.min}°`;
-        napiIdojaras.classList.remove('hidden');
-    }
-
+    // Az utazás minden városának előrejelzése (a következő ~16 napra eső napokon)
     async function idojarasFrissitese() {
         const ma = formatLocalDate(new Date());
         const utolso = new Date();
@@ -894,19 +895,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const varosok = new Set();
         racsNapjai.forEach(nap => {
             if (nap.datum < ma || nap.datum > utolsoStr) return;
-            const v = napElsoVarosa(nap.datum);
-            if (v) varosok.add(v);
+            (tasksData[nap.datum] || []).forEach(e => {
+                const v = (e.varos || '').trim();
+                if (v) varosok.add(v);
+            });
         });
-        if (varosok.size === 0) { idojarasMegjelenitese(); return; }
 
-        await Promise.all([...varosok].map(v => varosElorejelzese(v).catch(() => null)));
-        idojarasMegjelenitese();
+        if (varosok.size) {
+            await Promise.all([...varosok].map(v => varosElorejelzese(v).catch(() => null)));
+        }
+        idojarasCimkekKitoltese(document);
     }
-
-    // A napi nézetben a cím alatti időjárás-sor
-    const napiIdojaras = document.createElement('div');
-    napiIdojaras.className = 'napi-idojaras hidden';
-    document.querySelector('.detail-header').after(napiIdojaras);
 
     // Térkép: link, szöveg, vagy automatikus Google + Apple kereső gomb
     function terkepHtml(event) {
@@ -946,6 +945,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const sortedEvents = napiSorrend(rawEvents);
+        const idojarasVarosok = new Set();   // egy városnál csak az első előfordulás kap időjárást
 
         sortedEvents.forEach((event, index) => {
             const tr = document.createElement('tr');
@@ -954,13 +954,21 @@ document.addEventListener('DOMContentLoaded', () => {
             const felOk = index > 0 && athelyezheto(event, sortedEvents[index - 1]);
             const leOk = index < sortedEvents.length - 1 && athelyezheto(event, sortedEvents[index + 1]);
 
+            // Időjárás a városnév mellé (első előfordulásnál)
+            const varos = (event.varos || '').trim();
+            let varosIdo = '';
+            if (varos && !idojarasVarosok.has(varos.toUpperCase())) {
+                idojarasVarosok.add(varos.toUpperCase());
+                varosIdo = ` <span class="varos-ido hidden" data-ido-varos="${esc(varos)}" data-ido-datum="${esc(currentSelectedDate)}" data-ido-mod="teljes"></span>`;
+            }
+
             tr.innerHTML =
                 `<td>` +
                     `<span class="table-meta">${esc(event.tipus)}</span>` +
                     `<strong>${esc(event.idopont || '--:--')}</strong>` +
                 `</td>` +
                 `<td>` +
-                    `<span class="table-meta varos">${esc(event.varos)}</span>` +
+                    `<span class="table-meta varos">${esc(event.varos)}${varosIdo}</span>` +
                     `<span class="table-title">${esc(event.megnevezés)}</span>` +
                     (event.reszletek ? `<span class="table-desc">${esc(event.reszletek)}</span>` : '') +
                     terkepHtml(event) +
@@ -982,6 +990,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 `</td>`;
             detailTableBody.appendChild(tr);
         });
+
+        idojarasCimkekKitoltese(detailTableBody);
 
         detailTableBody.querySelectorAll('.btn-edit').forEach(btn => {
             btn.addEventListener('click', (e) => openEditModal(e.currentTarget.dataset.id));
